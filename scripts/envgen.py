@@ -37,6 +37,15 @@ def norm(name):
     return name.strip().lower().replace("_", "-").replace(".", "-")
 
 
+def req(name, version):
+    """Render one requirement. Compatible-release ``~=`` allows patch bumps, but it
+    is invalid with a local version segment (PEP 440), and a local build like
+    ``+cpu`` / ``+cu118`` / ``+db1`` is exactly what distinguishes CPU vs GPU ML
+    images and Databricks-patched packages — so those are pinned exactly with ``==``.
+    """
+    return f"{name}=={version}" if "+" in version else f"{name}~={version}"
+
+
 def parse_requirements(text):
     """Parse ``name==version`` lines into {normalized_name: version}."""
     pkgs = {}
@@ -90,7 +99,7 @@ def build_pyproject(pkgs, env_name, python_version, dbconnect=None):
         "",
         "[tool.uv]",
         "constraint-dependencies = [",
-        *[f'    "{n}~={body[n]}",' for n in sorted(body)],
+        *[f'    "{req(n, body[n])}",' for n in sorted(body)],
         "]",
     ]
     return "\n".join(out) + "\n"
@@ -99,7 +108,7 @@ def build_pyproject(pkgs, env_name, python_version, dbconnect=None):
 def build_constraints(pkgs, env_name):
     body = {n: v for n, v in _filtered(pkgs).items() if n != "databricks-connect"}
     out = [f"# constraints.txt file for Databricks {_label(env_name)}", ""]
-    out += [f"{n}~={body[n]}" for n in sorted(body)]
+    out += [req(n, body[n]) for n in sorted(body)]
     return "\n".join(out) + "\n"
 
 

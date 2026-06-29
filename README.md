@@ -20,9 +20,11 @@ python/
     serverless-v5/
       ...
   dbr/
-    17.3.x-scala2.13/
+    17.3.x-scala2.13/             # standard runtime
       pyproject.toml
       constraints.txt
+    17.3.x-cpu-ml-scala2.13/      # ML runtime, CPU clusters
+    17.3.x-gpu-ml-scala2.13/      # ML runtime, GPU clusters (CUDA builds)
     16.4.x-scala2.12/
       ...
 ```
@@ -56,8 +58,13 @@ against what's committed:
   then for each fetches the page and parses the "Installed Python libraries" HTML
   table. The repo key (`<ver>.x-scala<scala>`) is built from the page's title and the
   Scala version in its System environment. DBR pages don't list `databricks-connect`,
-  so its dev pin is derived from the runtime version. ML/GPU pages (`*-ml`) use a
-  different layout and are skipped (TODO).
+  so its dev pin is derived from the runtime version.
+- **DBR ML (CPU + GPU)** — for each `*-ml` runtime, a separate environment is produced
+  per cluster type: `<ver>.x-cpu-ml-…` and `<ver>.x-gpu-ml-…`. Newer ML pages link
+  downloadable `requirements-{cpu,gpu}-*.txt`; older ones render inline tables under
+  `python-libraries-on-{cpu,gpu}-clusters`. The GPU set carries the CUDA builds
+  (e.g. `torch==…+cu118`); the CPU set carries `…+cpu`. Local builds are pinned with
+  `==` (compatible-release `~=` is invalid with a `+local` segment).
 
 Run it:
 
@@ -82,4 +89,6 @@ python scripts/gen_pyproject.py requirements-env-4.txt serverless-v4 3.12.3 \
 
 - [x] Serverless (v1–vN) — auto-discovered + synced (`requirements-env-N.txt`)
 - [x] DBR standard runtimes — auto-discovered from the index + HTML-table parsing
-- [ ] DBR ML / GPU runtimes — ML pages use a different layout; parser is a TODO
+- [x] DBR ML runtimes (CPU + GPU) — downloadable requirements or inline tables
+- [ ] PyTorch index config in ML `pyproject.toml` (so `uv` fetches the matching
+      `+cpu` / `+cuXXX` torch build, not just pins it)

@@ -1,0 +1,102 @@
+"""Core transformation: official requirements list -> uv pyproject.toml + pip constraints.txt.
+
+The published Databricks environment package list (one ``name==version`` per line,
+as found in the release-notes "Installed Python libraries" section) is not used
+verbatim. A consistent set of rules is applied so the artifacts install cleanly on
+a developer machine:
+
+  * Names normalized   - lowercased, ``_``/``.`` -> ``-`` (Cython -> cython).
+  * ``==`` -> ``~=``    - allow security/patch bumps within a minor.
+  * databricks-connect - pinned to ``~=MAJOR.MINOR.0`` and emitted into
+                         ``[dependency-groups].dev`` of the pyproject (installed by
+                         default under uv); omitted from constraints.txt so the pip
+                         path is constraints-only.
+  * Non-installable    - system/OS packages and the Spark client bundle that cannot
+    packages dropped     be pip-installed locally or that ship vendored inside
+                         setuptools (see DROP / DROP_PREFIX). py4j is kept; pyspark
+                         is dropped so DB Connect supplies its own bundled build.
+  * requires-python    - taken from the runtime's Python version (major.minor).
+
+This module is imported by ``gen_pyproject.py`` (manual single-env use) and
+``sync.py`` (weekly discovery + reconciliation).
+"""
+import re
+
+# Present in the environment image but not wanted as a local constraint: system
+# libs, the spark client, pip itself, and deps vendored inside setuptools.
+DROP = {
+    "pyspark", "dbus-python", "pygobject", "pip", "unattended-upgrades",
+    # setuptools-vendored
+    "autocommand", "inflect", "typeguard", "backports-tarfile",
+    "importlib-resources", "more-itertools",
+}
+DROP_PREFIX = ("jaraco-",)        # jaraco.collections / jaraco.context / ...
+
+
+def norm(name):
+    return name.strip().lower().replace("_", "-").replace(".", "-")
+
+
+def parse_requirements(text):
+    """Parse ``name==version`` lines into {normalized_name: version}."""
+    pkgs = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r"^([A-Za-z0-9_.\-]+)==([^\s;]+)", line)
+        if m:
+            pkgs[norm(m.group(1))] = m.group(2)
+    return pkgs
+
+
+def _filtered(pkgs):
+    return {n: v for n, v in pkgs.items()
+            if n not in DROP and not n.startswith(DROP_PREFIX)}
+
+
+def dbconnect_pin(pkgs):
+    """Return the dev-group databricks-connect requirement, or None."""
+    v = pkgs.get("databricks-connect")
+    if not v:
+        return None
+    return f"databricks-connect~={'.'.join(v.split('.')[:2])}.0"
+
+
+def build_pyproject(pkgs, env_name, python_version):
+    mm = ".".join(python_version.split(".")[:2])     # 3.12.3 -> 3.12
+    body = {n: v for n, v in _filtered(pkgs).items() if n != "databricks-connect"}
+    dev = dbconnect_pin(pkgs)
+    out = [
+        f"# pyproject.toml file for Databricks {_label(env_name)}",
+        "",
+        "[project]",
+        f'name = "constraint-env-{env_name}"',
+        'version = "0.1.0"',
+        f'requires-python = "=={mm}.*"',
+        "",
+        "[dependency-groups]",
+        "dev = [",
+        *([f'    "{dev}",'] if dev else []),
+        "]",
+        "",
+        "[tool.uv]",
+        "constraint-dependencies = [",
+        *[f'    "{n}~={body[n]}",' for n in sorted(body)],
+        "]",
+    ]
+    return "\n".join(out) + "\n"
+
+
+def build_constraints(pkgs, env_name):
+    body = {n: v for n, v in _filtered(pkgs).items() if n != "databricks-connect"}
+    out = [f"# constraints.txt file for Databricks {_label(env_name)}", ""]
+    out += [f"{n}~={body[n]}" for n in sorted(body)]
+    return "\n".join(out) + "\n"
+
+
+def _label(env_name):
+    m = re.fullmatch(r"serverless-v(\d+)", env_name)
+    if m:
+        return f"Serverless environment version {m.group(1)}"
+    return env_name.replace("-", " ")

@@ -33,9 +33,22 @@ import envgen
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVERLESS_PAGE = "https://docs.databricks.com/aws/en/release-notes/serverless/environment-version/{word}"
+DBR_PAGE = "https://docs.databricks.com/aws/en/release-notes/runtime/{slug}"
 DOCS_HOST = "https://docs.databricks.com"
 WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight",
          "nine", "ten", "eleven", "twelve"]
+
+# DBR runtimes to track. Unlike serverless there's no version index to enumerate
+# and the repo key (spark_version, incl. Scala variant) can't be derived from the
+# docs slug, so targets are listed explicitly: {repo key -> docs slug}. The standard
+# (non-ML) runtime pages carry a parseable Python library table; ML pages use a
+# different layout (TODO). Add rows here as new runtimes ship.
+DBR_TARGETS = [
+    {"key": "17.3.x-scala2.13", "slug": "17.3lts"},
+    {"key": "16.4.x-scala2.12", "slug": "16.4lts"},
+    {"key": "15.4.x-scala2.12", "slug": "15.4lts"},
+    {"key": "14.3.x-scala2.12", "slug": "14.3lts"},
+]
 
 
 def fetch(url):
@@ -97,6 +110,49 @@ def sync_serverless():
     return written
 
 
+def parse_dbr_page(html):
+    """Extract (pkgs, python_version) from a DBR runtime page.
+
+    The "Installed Python libraries" section is an HTML table whose cells alternate
+    Library, Version (across however many Library/Version column pairs the page uses):
+    ``<td><p>name<td><p>version<td><p>name<td><p>version ...``. We slice from that
+    heading to the next ``</table>`` and pair the cells.
+    """
+    i = html.find("Installed Python libraries")
+    if i == -1:
+        return None, None
+    j = html.find("</table>", i)
+    cells = re.findall(r"<td><p>([^<]*)", html[i:j])
+    pkgs = {envgen.norm(cells[k]): cells[k + 1] for k in range(0, len(cells) - 1, 2)}
+    pv = re.search(r"Python</strong>\s*:\s*(\d+\.\d+\.\d+)", html)
+    return pkgs, (pv.group(1) if pv else None)
+
+
+def sync_dbr():
+    written = []
+    for t in DBR_TARGETS:
+        key, slug = t["key"], t["slug"]
+        try:
+            html = fetch(DBR_PAGE.format(slug=slug))
+        except Exception as e:
+            print(f"  ! dbr/{key}: fetch failed ({e}); skipping")
+            continue
+        pkgs, python_version = parse_dbr_page(html)
+        if not pkgs or not python_version:
+            print(f"  ! dbr/{key}: no Python table / version on {slug}; skipping")
+            continue
+        mm = ".".join(key.split(".")[:2])            # 17.3.x-scala2.13 -> 17.3
+        out_dir = os.path.join(REPO, "python", "dbr", key)
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "pyproject.toml"), "w", encoding="utf-8") as f:
+            f.write(envgen.build_pyproject(pkgs, key, python_version, dbconnect=mm))
+        with open(os.path.join(out_dir, "constraints.txt"), "w", encoding="utf-8") as f:
+            f.write(envgen.build_constraints(pkgs, key))
+        print(f"  + dbr/{key} (python {python_version}, {len(pkgs)} packages)")
+        written.append(key)
+    return written
+
+
 def git(*args):
     return subprocess.run(["git", "-C", REPO, *args],
                           capture_output=True, text=True).stdout
@@ -128,6 +184,8 @@ def main():
 
     print("Discovering serverless environments from docs.databricks.com ...")
     sync_serverless()
+    print("Syncing DBR runtimes from docs.databricks.com ...")
+    sync_dbr()
     changed = reconcile()
 
     if args.check:

@@ -63,15 +63,23 @@ def dbconnect_pin(pkgs):
     return f"databricks-connect~={'.'.join(v.split('.')[:2])}.0"
 
 
-def build_pyproject(pkgs, env_name, python_version):
+def build_pyproject(pkgs, env_name, python_version, dbconnect=None):
+    """Build the pyproject.toml text.
+
+    ``dbconnect`` optionally overrides the dev-group databricks-connect pin with a
+    ``MAJOR.MINOR`` string (e.g. "17.3"). Serverless pages list databricks-connect
+    in the package set, so the default (derive from pkgs) works there. DBR pages do
+    not list it — the matching version is the runtime version, passed in explicitly.
+    """
     mm = ".".join(python_version.split(".")[:2])     # 3.12.3 -> 3.12
     body = {n: v for n, v in _filtered(pkgs).items() if n != "databricks-connect"}
-    dev = dbconnect_pin(pkgs)
+    dev = f"databricks-connect~={dbconnect}.0" if dbconnect else dbconnect_pin(pkgs)
+    project = "constraint-env-" + re.sub(r"[^a-z0-9]+", "-", env_name.lower()).strip("-")
     out = [
         f"# pyproject.toml file for Databricks {_label(env_name)}",
         "",
         "[project]",
-        f'name = "constraint-env-{env_name}"',
+        f'name = "{project}"',
         'version = "0.1.0"',
         f'requires-python = "=={mm}.*"',
         "",
@@ -99,4 +107,6 @@ def _label(env_name):
     m = re.fullmatch(r"serverless-v(\d+)", env_name)
     if m:
         return f"Serverless environment version {m.group(1)}"
+    if re.match(r"\d+\.\d+\.x", env_name):
+        return f"Runtime {env_name}"
     return env_name.replace("-", " ")

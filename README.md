@@ -19,10 +19,12 @@ python/
       constraints.txt
     serverless-v5/
       ...
-  dbr/                      # (planned)
-    17.3.x-cpu-ml-scala2.13/
+  dbr/
+    17.3.x-scala2.13/
       pyproject.toml
       constraints.txt
+    16.4.x-scala2.12/
+      ...
 ```
 
 Top-level `python/` namespaces these as Python-ecosystem artifacts, leaving room for
@@ -44,9 +46,19 @@ Databricks release notes — see `scripts/envgen.py` for the rules.
 
 ## Keeping it in sync
 
-`scripts/sync.py` discovers the published serverless environment versions from the
-release notes, downloads each `requirements-env-N.txt`, regenerates both artifacts,
-and reconciles them against what's committed:
+`scripts/sync.py` regenerates artifacts from the release notes and reconciles them
+against what's committed:
+
+- **Serverless** — discovers the published environment versions, downloads each
+  `requirements-env-N.txt`, and regenerates both artifacts.
+- **DBR** — for each runtime in the `DBR_TARGETS` list in `sync.py`, fetches the
+  runtime page and parses the "Installed Python libraries" HTML table. DBR pages
+  don't list `databricks-connect`, so its dev pin is derived from the runtime
+  version. Targets are explicit (the repo key includes the Scala variant, which the
+  docs slug doesn't carry); add a row per runtime you want tracked. Standard
+  (non-ML) runtimes are supported; ML pages use a different layout (TODO).
+
+Run it:
 
 ```bash
 python scripts/sync.py          # regenerate into the working tree
@@ -67,5 +79,7 @@ python scripts/gen_pyproject.py requirements-env-4.txt serverless-v4 3.12.3 \
 
 ## Status
 
-- [x] Serverless (v1–vN) — automated via docs sync
-- [ ] DBR — release-notes pages list libraries inline in HTML; parser is a TODO
+- [x] Serverless (v1–vN) — automated via docs sync (`requirements-env-N.txt`)
+- [x] DBR standard runtimes — automated via HTML-table parsing (`DBR_TARGETS`)
+- [ ] DBR ML / GPU runtimes — ML pages use a different layout; parser is a TODO
+- [ ] Auto-discovery of DBR versions (today the target list is explicit)

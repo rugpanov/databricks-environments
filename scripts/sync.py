@@ -27,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 
 import envgen
@@ -50,7 +51,13 @@ def fetch(url):
 
 
 def discover_serverless():
-    """Return [(n, page_html)] for every serverless version page that exists."""
+    """Return [(n, page_html)] for every serverless version page that exists.
+
+    Only a genuine HTTP 404 counts as "this version doesn't exist" (end-of-list).
+    Transient errors (timeout, 5xx) must not be mistaken for the end of the list —
+    otherwise a flaky run silently drops every higher version — so they're logged
+    and skipped without advancing the end-of-list counter.
+    """
     found = []
     misses = 0
     for n, word in enumerate(WORDS, start=1):
@@ -58,10 +65,15 @@ def discover_serverless():
             html = fetch(SERVERLESS_PAGE.format(word=word))
             found.append((n, html))
             misses = 0
-        except Exception:
-            misses += 1
-            if misses >= 2:        # two consecutive 404s -> stop probing
-                break
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                misses += 1
+                if misses >= 2:    # two consecutive 404s -> past the last version
+                    break
+            else:
+                print(f"  ! serverless v{n}: transient HTTP {e.code}; skipping (not end-of-list)")
+        except Exception as e:
+            print(f"  ! serverless v{n}: transient fetch error ({e}); skipping (not end-of-list)")
     return found
 
 
@@ -90,7 +102,12 @@ def sync_serverless():
         if not req_url or not python_version:
             print(f"  ! {env_name}: could not locate requirements URL / python version; skipping")
             continue
-        pkgs = envgen.parse_requirements(fetch(req_url))
+        try:
+            pkgs = envgen.parse_requirements(fetch(req_url))
+        except Exception as e:
+            # Don't let one flaky download abort the rest of the sync (DBR runs after).
+            print(f"  ! {env_name}: download failed ({e}); skipping")
+            continue
         out_dir = os.path.join(REPO, "python", "serverless", env_name)
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, "pyproject.toml"), "w", encoding="utf-8") as f:
@@ -249,6 +266,15 @@ def main():
                     help="regenerate, report drift/new, restore tree, exit 1 if changed")
     args = ap.parse_args()
 
+    if args.check:
+        # --check restores python/ afterwards (checkout + clean), which would destroy
+        # any pre-existing uncommitted work there. Refuse rather than clobber it.
+        pre = git("status", "--porcelain", "python/").strip()
+        if pre:
+            print("Refusing --check: python/ has uncommitted changes that would be "
+                  "discarded by the post-check restore. Commit or stash them first.")
+            sys.exit(2)
+
     print("Discovering serverless environments from docs.databricks.com ...")
     sync_serverless()
     print("Syncing DBR runtimes from docs.databricks.com ...")
@@ -258,6 +284,8 @@ def main():
     changed = reconcile()
 
     if args.check:
+        # Safe now: python/ was verified clean above, so this only reverts/removes
+        # what this run generated.
         git("checkout", "--", "python/")
         git("clean", "-fdq", "python/")
         sys.exit(1 if changed else 0)

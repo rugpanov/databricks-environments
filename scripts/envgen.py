@@ -34,7 +34,9 @@ DROP_PREFIX = ("jaraco-",)        # jaraco.collections / jaraco.context / ...
 
 
 def norm(name):
-    return name.strip().lower().replace("_", "-").replace(".", "-")
+    # Strip the '*' footnote marker the release-notes tables append to some package
+    # names ('*' is not legal in a PEP 508 distribution name).
+    return name.strip().lower().replace("*", "").strip().replace("_", "-").replace(".", "-")
 
 
 def req(name, version):

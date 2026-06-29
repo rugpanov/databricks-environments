@@ -33,22 +33,14 @@ import envgen
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVERLESS_PAGE = "https://docs.databricks.com/aws/en/release-notes/serverless/environment-version/{word}"
+DBR_INDEX = "https://docs.databricks.com/aws/en/release-notes/runtime/"
 DBR_PAGE = "https://docs.databricks.com/aws/en/release-notes/runtime/{slug}"
 DOCS_HOST = "https://docs.databricks.com"
 WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight",
          "nine", "ten", "eleven", "twelve"]
 
-# DBR runtimes to track. Unlike serverless there's no version index to enumerate
-# and the repo key (spark_version, incl. Scala variant) can't be derived from the
-# docs slug, so targets are listed explicitly: {repo key -> docs slug}. The standard
-# (non-ML) runtime pages carry a parseable Python library table; ML pages use a
-# different layout (TODO). Add rows here as new runtimes ship.
-DBR_TARGETS = [
-    {"key": "17.3.x-scala2.13", "slug": "17.3lts"},
-    {"key": "16.4.x-scala2.12", "slug": "16.4lts"},
-    {"key": "15.4.x-scala2.12", "slug": "15.4lts"},
-    {"key": "14.3.x-scala2.12", "slug": "14.3lts"},
-]
+# Index entries that aren't a runtime version page.
+DBR_NON_VERSION = {"maintenance-updates", "databricks-runtime-ver", "eos"}
 
 
 def fetch(url):
@@ -113,33 +105,70 @@ def sync_serverless():
 def parse_dbr_page(html):
     """Extract (pkgs, python_version) from a DBR runtime page.
 
-    The "Installed Python libraries" section is an HTML table whose cells alternate
-    Library, Version (across however many Library/Version column pairs the page uses):
-    ``<td><p>name<td><p>version<td><p>name<td><p>version ...``. We slice from that
-    heading to the next ``</table>`` and pair the cells.
+    The "Installed Python libraries" section is a single HTML table whose cells
+    alternate Library, Version across however many Library/Version column pairs the
+    page uses: ``<td><p>name<td><p>version<td><p>name<td><p>version ...``. We anchor
+    on the heading's anchor id (``id=installed-python-libraries``) rather than the
+    plain heading text — some pages mention that phrase earlier in a changelog, and
+    they carry other tables (e.g. dated maintenance tables) we must not capture — then
+    take the first ``<table>...</table>`` after it.
     """
-    i = html.find("Installed Python libraries")
-    if i == -1:
+    m = re.search(r'id=["\']?installed-python-libraries', html)
+    if not m:
         return None, None
-    j = html.find("</table>", i)
-    cells = re.findall(r"<td><p>([^<]*)", html[i:j])
+    t0 = html.find("<table>", m.end())
+    t1 = html.find("</table>", t0)
+    if t0 == -1 or t1 == -1:
+        return None, None
+    cells = re.findall(r"<td><p>([^<]*)", html[t0:t1])
     pkgs = {envgen.norm(cells[k]): cells[k + 1] for k in range(0, len(cells) - 1, 2)}
     pv = re.search(r"Python</strong>\s*:\s*(\d+\.\d+\.\d+)", html)
     return pkgs, (pv.group(1) if pv else None)
 
 
+def discover_dbr():
+    """Enumerate standard (non-ML) runtime version slugs from the release-notes index.
+
+    ML/GPU pages (``*-ml``) use a different layout we don't parse yet, so they're
+    skipped here. Returns a list of slugs like ['17.3lts', '16.4lts', '19', ...].
+    """
+    html = fetch(DBR_INDEX)
+    slugs = re.findall(r"release-notes/runtime/([0-9][\w.-]*)", html)
+    out, seen = [], set()
+    for s in slugs:
+        s = s.rstrip("/")
+        if s in seen or s in DBR_NON_VERSION or s.endswith("ml"):
+            continue
+        if not re.match(r"^\d+(\.\d+)?(lts)?$", s):
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def dbr_key(html):
+    """Build the repo key (spark_version form) from a runtime page: e.g.
+    'Databricks Runtime 17.3 LTS' + Scala 2.13 -> '17.3.x-scala2.13'."""
+    ver = re.search(r"Databricks Runtime\s+(\d+)(?:\.(\d+))?", html)
+    sc = re.search(r"Scala</strong>\s*:\s*(\d+\.\d+)", html)
+    if not ver or not sc:
+        return None
+    major, minor = ver.group(1), ver.group(2) or "0"
+    return f"{major}.{minor}.x-scala{sc.group(1)}"
+
+
 def sync_dbr():
     written = []
-    for t in DBR_TARGETS:
-        key, slug = t["key"], t["slug"]
+    for slug in discover_dbr():
         try:
             html = fetch(DBR_PAGE.format(slug=slug))
         except Exception as e:
-            print(f"  ! dbr/{key}: fetch failed ({e}); skipping")
+            print(f"  ! dbr [{slug}]: fetch failed ({e}); skipping")
             continue
+        key = dbr_key(html)
         pkgs, python_version = parse_dbr_page(html)
-        if not pkgs or not python_version:
-            print(f"  ! dbr/{key}: no Python table / version on {slug}; skipping")
+        if not key or not pkgs or not python_version:
+            print(f"  ! dbr [{slug}]: no key / Python table / version; skipping")
             continue
         mm = ".".join(key.split(".")[:2])            # 17.3.x-scala2.13 -> 17.3
         out_dir = os.path.join(REPO, "python", "dbr", key)

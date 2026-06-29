@@ -51,12 +51,13 @@ against what's committed:
 
 - **Serverless** — discovers the published environment versions, downloads each
   `requirements-env-N.txt`, and regenerates both artifacts.
-- **DBR** — for each runtime in the `DBR_TARGETS` list in `sync.py`, fetches the
-  runtime page and parses the "Installed Python libraries" HTML table. DBR pages
-  don't list `databricks-connect`, so its dev pin is derived from the runtime
-  version. Targets are explicit (the repo key includes the Scala variant, which the
-  docs slug doesn't carry); add a row per runtime you want tracked. Standard
-  (non-ML) runtimes are supported; ML pages use a different layout (TODO).
+- **DBR** — enumerates the standard runtime versions from the
+  [runtime release-notes index](https://docs.databricks.com/aws/en/release-notes/runtime/),
+  then for each fetches the page and parses the "Installed Python libraries" HTML
+  table. The repo key (`<ver>.x-scala<scala>`) is built from the page's title and the
+  Scala version in its System environment. DBR pages don't list `databricks-connect`,
+  so its dev pin is derived from the runtime version. ML/GPU pages (`*-ml`) use a
+  different layout and are skipped (TODO).
 
 Run it:
 
@@ -79,7 +80,6 @@ python scripts/gen_pyproject.py requirements-env-4.txt serverless-v4 3.12.3 \
 
 ## Status
 
-- [x] Serverless (v1–vN) — automated via docs sync (`requirements-env-N.txt`)
-- [x] DBR standard runtimes — automated via HTML-table parsing (`DBR_TARGETS`)
+- [x] Serverless (v1–vN) — auto-discovered + synced (`requirements-env-N.txt`)
+- [x] DBR standard runtimes — auto-discovered from the index + HTML-table parsing
 - [ ] DBR ML / GPU runtimes — ML pages use a different layout; parser is a TODO
-- [ ] Auto-discovery of DBR versions (today the target list is explicit)

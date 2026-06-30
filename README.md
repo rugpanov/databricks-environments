@@ -44,18 +44,18 @@ serverless), so resolving a target to its artifact is a deterministic lookup.
   so the pip path is constraints-only unless DB Connect is installed explicitly.
 
 Both are a mechanical transform of the official package list published in the
-Databricks release notes — see `scripts/envgen.py` for the rules.
+Databricks release notes — see `.github/scripts/envgen.py` for the rules.
 
 ## How it stays in sync
 
 A scheduled GitHub Action (`.github/workflows/sync.yml`) is the only mechanism that
-maintains this repo. Weekly (and on-demand via *Run workflow*) it runs `scripts/sync.py`
+maintains this repo. Weekly (and on-demand via *Run workflow*) it runs `.github/scripts/sync.py`
 to regenerate every environment from the release notes, reconciles against what's
 committed, and **opens a PR** when an environment drifts or a new version appears. A
 maintainer reviews and merges that PR — the deliberate human gate, since docs parsing
 is best-effort. Nobody hand-edits the `python/` artifacts.
 
-`scripts/sync.py` does the regeneration + reconciliation:
+`.github/scripts/sync.py` does the regeneration + reconciliation:
 
 - **Serverless** — discovers the published environment versions, downloads each
   `requirements-env-N.txt`, and regenerates both artifacts.
@@ -75,8 +75,8 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
 The Action runs it; you only need to run it locally to debug:
 
 ```bash
-python scripts/sync.py          # regenerate into the working tree
-python scripts/sync.py --check  # report drift / new versions, exit non-zero if any
+python .github/scripts/sync.py          # regenerate into the working tree
+python .github/scripts/sync.py --check  # report drift / new versions, exit non-zero if any
 ```
 
 This docs-parsing sync is an **interim** mechanism; the durable plan is for the

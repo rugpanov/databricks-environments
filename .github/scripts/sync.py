@@ -32,7 +32,11 @@ import urllib.request
 
 import envgen
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Repo root, resolved independently of where this script lives.
+REPO = subprocess.check_output(
+    ["git", "-C", os.path.dirname(os.path.abspath(__file__)), "rev-parse", "--show-toplevel"],
+    text=True,
+).strip()
 SERVERLESS_PAGE = "https://docs.databricks.com/aws/en/release-notes/serverless/environment-version/{word}"
 DBR_INDEX = "https://docs.databricks.com/aws/en/release-notes/runtime/"
 DBR_PAGE = "https://docs.databricks.com/aws/en/release-notes/runtime/{slug}"

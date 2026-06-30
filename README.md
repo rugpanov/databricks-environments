@@ -77,7 +77,14 @@ The Action runs it; you only need to run it locally to debug:
 ```bash
 python .github/scripts/sync.py          # regenerate into the working tree
 python .github/scripts/sync.py --check  # report drift / new versions, exit non-zero if any
+python .github/scripts/sync.py --manifest  # sha256 manifest of python/ (no fetch)
 ```
+
+`--manifest` prints one line per environment with its package count and the sha256
+of each artifact — a network-free, deterministic fingerprint of the tree. Two trees
+with identical manifests are byte-for-byte identical payloads, so it's the way to
+verify reproducibility/portability: regenerate on a fresh repo, then diff its
+manifest against this one.
 
 This docs-parsing sync is an **interim** mechanism; the durable plan is for the
 runtime/environments build pipeline to publish these files directly. See the design

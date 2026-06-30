@@ -23,6 +23,7 @@ on ``python/`` shows changed (drift) and untracked (new version) artifacts. In
 open a PR.
 """
 import argparse
+import hashlib
 import os
 import re
 import subprocess
@@ -275,11 +276,44 @@ def reconcile():
     return True
 
 
+def print_manifest():
+    """Print a deterministic, network-free description of the committed python/ tree:
+    one line per environment with its package count and the sha256 of each artifact.
+
+    Two trees that produce identical manifests are byte-for-byte identical payloads,
+    so this is the comparison primitive for the reproducibility/portability test
+    (e.g. regenerate on a fresh repo, then diff its manifest against this one).
+    """
+    base = os.path.join(REPO, "python")
+    rows = []
+    for dirpath, _, files in os.walk(base):
+        if "constraints.txt" not in files:
+            continue
+        rel = os.path.relpath(dirpath, REPO).replace(os.sep, "/")
+        cbytes = open(os.path.join(dirpath, "constraints.txt"), "rb").read()
+        pkgs = sum(1 for l in cbytes.decode().splitlines()
+                   if l.strip() and not l.startswith("#"))
+        csha = hashlib.sha256(cbytes).hexdigest()
+        ppath = os.path.join(dirpath, "pyproject.toml")
+        psha = hashlib.sha256(open(ppath, "rb").read()).hexdigest() if os.path.exists(ppath) else "-"
+        rows.append((rel, pkgs, csha, psha))
+    for rel, pkgs, csha, psha in sorted(rows):
+        print(f"{rel}\tpkgs={pkgs}\tconstraints={csha}\tpyproject={psha}")
+    print(f"# {len(rows)} environments")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true",
                     help="regenerate, report drift/new, restore tree, exit 1 if changed")
+    ap.add_argument("--manifest", action="store_true",
+                    help="print a sha256 manifest of the committed python/ tree and exit "
+                         "(no fetch, no regeneration) — for reproducibility comparison")
     args = ap.parse_args()
+
+    if args.manifest:
+        print_manifest()
+        return
 
     if args.check:
         # --check restores python/ afterwards (checkout + clean), which would destroy

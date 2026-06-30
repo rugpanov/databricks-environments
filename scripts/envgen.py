@@ -17,8 +17,7 @@ a developer machine:
                          is dropped so DB Connect supplies its own bundled build.
   * requires-python    - taken from the runtime's Python version (major.minor).
 
-This module is imported by ``gen_pyproject.py`` (manual single-env use) and
-``sync.py`` (weekly discovery + reconciliation).
+This module is imported by ``sync.py`` (the weekly discovery + reconciliation Action).
 """
 import re
 

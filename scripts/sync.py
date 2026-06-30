@@ -68,7 +68,10 @@ def discover_serverless():
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 misses += 1
-                if misses >= 2:    # two consecutive 404s -> past the last version
+                # Only treat trailing 404s as end-of-list. Retired early versions
+                # (e.g. v1/v2 removed) must not stop us before reaching live ones,
+                # so require at least one found version before honoring the break.
+                if found and misses >= 2:
                     break
             else:
                 print(f"  ! serverless v{n}: transient HTTP {e.code}; skipping (not end-of-list)")
@@ -135,14 +138,22 @@ def table_pkgs(html, anchor_id):
     t1 = html.find("</table>", t0)
     if t0 == -1 or t1 == -1:
         return None
-    cells = re.findall(r"<td><p>([^<]*)", html[t0:t1])
-    return {envgen.norm(cells[k]): cells[k + 1] for k in range(0, len(cells) - 1, 2)}
+    # Split on <td> and strip any inline tags (<p>, nested <a>/<code>, etc.) rather
+    # than assuming every cell is exactly "<td><p>text" — a cell that deviates from
+    # that shape would otherwise be dropped and shift name/version alignment for the
+    # rest of the table. Header <th> cells are naturally excluded.
+    cells = [re.sub(r"<[^>]+>", "", c).strip() for c in html[t0:t1].split("<td>")[1:]]
+    return {envgen.norm(cells[k]): cells[k + 1]
+            for k in range(0, len(cells) - 1, 2) if cells[k]}
 
 
 def dbr_meta(html):
     """Return (version, scala, python_version) from a standard runtime page, e.g.
     ('17.3', '2.13', '3.12.3'), or None if any piece is missing."""
-    ver = re.search(r"Databricks Runtime\s+(\d+)(?:\.(\d+))?", html)
+    # Anchor the version to the page's own <title> rather than the first generic
+    # "Databricks Runtime N" in the HTML — sidebar/nav links to other runtimes can
+    # appear earlier in the source and would otherwise be mis-selected.
+    ver = re.search(r"<title[^>]*>Databricks Runtime\s+(\d+)(?:\.(\d+))?", html)
     sc = re.search(r"Scala</strong>\s*:\s*(\d+\.\d+)", html)
     pv = re.search(r"Python</strong>\s*:\s*(\d+\.\d+\.\d+)", html)
     if not (ver and sc and pv):

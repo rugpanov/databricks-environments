@@ -46,10 +46,16 @@ serverless), so resolving a target to its artifact is a deterministic lookup.
 Both are a mechanical transform of the official package list published in the
 Databricks release notes — see `scripts/envgen.py` for the rules.
 
-## Keeping it in sync
+## How it stays in sync
 
-`scripts/sync.py` regenerates artifacts from the release notes and reconciles them
-against what's committed:
+A scheduled GitHub Action (`.github/workflows/sync.yml`) is the only mechanism that
+maintains this repo. Weekly (and on-demand via *Run workflow*) it runs `scripts/sync.py`
+to regenerate every environment from the release notes, reconciles against what's
+committed, and **opens a PR** when an environment drifts or a new version appears. A
+maintainer reviews and merges that PR — the deliberate human gate, since docs parsing
+is best-effort. Nobody hand-edits the `python/` artifacts.
+
+`scripts/sync.py` does the regeneration + reconciliation:
 
 - **Serverless** — discovers the published environment versions, downloads each
   `requirements-env-N.txt`, and regenerates both artifacts.
@@ -66,24 +72,16 @@ against what's committed:
   (e.g. `torch==…+cu118`); the CPU set carries `…+cpu`. Local builds are pinned with
   `==` (compatible-release `~=` is invalid with a `+local` segment).
 
-Run it:
+The Action runs it; you only need to run it locally to debug:
 
 ```bash
 python scripts/sync.py          # regenerate into the working tree
 python scripts/sync.py --check  # report drift / new versions, exit non-zero if any
 ```
 
-A scheduled GitHub Action (`.github/workflows/sync.yml`) runs this weekly and opens a
-PR when an environment drifts or a new version appears. This docs-parsing sync is an
-**interim** mechanism; the durable plan is for the runtime/environments build pipeline
-to publish these files directly. See the design doc for the full rationale.
-
-### Generating a single environment manually
-
-```bash
-python scripts/gen_pyproject.py requirements-env-4.txt serverless-v4 3.12.3 \
-    python/serverless/serverless-v4
-```
+This docs-parsing sync is an **interim** mechanism; the durable plan is for the
+runtime/environments build pipeline to publish these files directly. See the design
+doc for the full rationale.
 
 ## Status
 

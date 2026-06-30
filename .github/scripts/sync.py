@@ -42,8 +42,12 @@ SERVERLESS_PAGE = "https://docs.databricks.com/aws/en/release-notes/serverless/e
 DBR_INDEX = "https://docs.databricks.com/aws/en/release-notes/runtime/"
 DBR_PAGE = "https://docs.databricks.com/aws/en/release-notes/runtime/{slug}"
 DOCS_HOST = "https://docs.databricks.com"
-WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight",
-         "nine", "ten", "eleven", "twelve"]
+# Serverless version pages use spelled-out ordinals in the URL (.../environment-version/four).
+# The trailing-404 heuristic bounds discovery at the real last version; this list only
+# needs headroom beyond the highest published version (currently v5).
+WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+         "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+         "eighteen", "nineteen", "twenty"]
 
 # Index entries that aren't a runtime version page.
 DBR_NON_VERSION = {"maintenance-updates", "databricks-runtime-ver", "eos"}
@@ -147,7 +151,8 @@ def table_pkgs(html, anchor_id):
     # than assuming every cell is exactly "<td><p>text" — a cell that deviates from
     # that shape would otherwise be dropped and shift name/version alignment for the
     # rest of the table. Header <th> cells are naturally excluded.
-    cells = [re.sub(r"<[^>]+>", "", c).strip() for c in html[t0:t1].split("<td>")[1:]]
+    cells = [re.sub(r"<[^>]+>", "", c).strip()
+             for c in re.split(r"<td[^>]*>", html[t0:t1])[1:]]
     return {envgen.norm(cells[k]): cells[k + 1]
             for k in range(0, len(cells) - 1, 2) if cells[k]}
 
@@ -254,8 +259,11 @@ def sync_dbr_ml():
 
 
 def git(*args):
-    return subprocess.run(["git", "-C", REPO, *args],
-                          capture_output=True, text=True).stdout
+    r = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True)
+    if r.returncode != 0:
+        # Don't let a git failure (e.g. lock contention) be read as "no changes".
+        raise RuntimeError(f"git {' '.join(args)} failed: {r.stderr.strip()}")
+    return r.stdout
 
 
 def reconcile():
